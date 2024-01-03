@@ -6,7 +6,6 @@
 
 import logging
 import os
-import shutil
 import subprocess
 from typing import Any, Dict
 
@@ -19,7 +18,8 @@ from charms.operator_libs_linux.v1.systemd import (
     service_running,
     service_stop,
 )
-from charms.prometheus_k8s.v0.prometheus_remote_write import PrometheusRemoteWriteConsumer
+from charms.operator_libs_linux.v2 import snap
+from charms.prometheus_k8s.v1.prometheus_remote_write import PrometheusRemoteWriteConsumer
 from jinja2 import Environment, FileSystemLoader, exceptions
 from ops.main import main
 
@@ -73,14 +73,18 @@ class K6Operator(ops.CharmBase):
         self.framework.observe(
             self.on[OPENSEARCH_RELATION].relation_broken, self._on_relation_broken
         )
+        self.remote_write_consumer = PrometheusRemoteWriteConsumer(self)
         self.framework.observe(
             self.remote_write_consumer.on.endpoints_changed,
-            self._handle_endpoints_changed,
+            self._rw_changed,
         )
-        self.remote_write_consumer = PrometheusRemoteWriteConsumer(self)
+
+    def _rw_changed(self, _):
+        """Update the remote write url."""
+        pass
 
     @property
-    def _database_config(self):
+    def _k6_config(self):
         """Returns the database config to use to connect to the MySQL cluster."""
         # identify the database relation
         data = list(self.database.fetch_relation_data().values())[0]
@@ -109,7 +113,8 @@ class K6Operator(ops.CharmBase):
 
     def __del__(self):
         """Set status for the operator and finishes the service."""
-        self.unit.status = self.status()
+        pass
+        # self.unit.status = self.status()
 
     @property
     def is_tls_enabled(self):
@@ -140,8 +145,22 @@ class K6Operator(ops.CharmBase):
         No exceptions are captured as we need all the dependencies below to even start running.
         """
         apt.update()
-        apt.add_package(["snapd", "unzip"])
+        apt.add_package(["snapd", "python3-jinja2", "unzip"])
         subprocess.check_output(["mkdir", "-p", K6_PATH])
+
+        cache = snap.SnapCache()
+        go = cache["go"]
+
+        if not go.present:
+            go.ensure(snap.SnapState.Latest, channel="1.20/stable")
+
+    def _install_xk6(self):
+        k6_resource = self.model.resources.fetch(K6_RESOURCE)
+        try:
+            subprocess.check_output(["unzip", "-o", "-j", k6_resource, "-d", K6_PATH])
+        except Exception as e:
+            raise e
+        os.chmod(K6_PATH + K6_SVC, 0o777)
 
     def on_run_action(self, event):
         """Run benchmark action."""
@@ -159,8 +178,8 @@ class K6Operator(ops.CharmBase):
                 "vus": event.params.get("clients", 10),
                 "duration": event.params.get("duration", 0),
                 "js_script": JS_SCRIPT,
-                "prometheus_rw_server_url": self.remote_write_consumer.endpoints[0],
-                "prometheus_rw_push_interval": self.config["prometheus_rw_push_interval"],
+                "prometheus_rw_server_url": self.remote_write_consumer.endpoints[0]["url"],
+                "prometheus_rw_push_interval": self.config["remote_write_interval"],
             },
         )
         db = self._k6_config
@@ -176,7 +195,9 @@ class K6Operator(ops.CharmBase):
             service_stop(K6_SVC)
 
         if shards > 0:
-            replicas = num_units // shards
+            replicas = num_units // shards - 1
+        if replicas < 0:
+            replicas = 0
         _render(
             f"{JS_SCRIPT}.j2",
             K6_PATH + JS_SCRIPT,
@@ -185,9 +206,10 @@ class K6Operator(ops.CharmBase):
                 "password": db["password"],
                 "url": f"https://{db['host']}:{db['port']}",
                 "cleanup": event.params.get("cleanup", False),
+                "message_size": event.params.get("message_size", 100),
                 "indices_parameters": [
                     {
-                        "name": n,
+                        "index": n,
                         "shards": shards,
                         "replicas": replicas,
                     }
@@ -197,46 +219,9 @@ class K6Operator(ops.CharmBase):
         )
 
         self.duration = event.params.get("duration", 0)
-        # copy the tpcc file
-        k6_resource = self.model.resources.fetch(K6_RESOURCE)
-        try:
-            subprocess.check_output(["unzip", "-o", "-j", k6_resource, "-d", K6_PATH])
-        except Exception as e:
-            raise e
-
-        if not os.path.exists(K6_PATH + JS_SCRIPT):
-            raise Exception()
 
         daemon_reload()
         service_restart(K6_SVC)
-
-    @property
-    def _k6_config(self):
-        """Returns the database config to use to connect to the MySQL cluster."""
-        # identify the database relation
-        data = list(self.database.fetch_relation_data().values())[0]
-
-        username, password, endpoints = (
-            data.get("username"),
-            data.get("password"),
-            data.get("endpoints"),
-        )
-        if None in [username, password, endpoints]:
-            return {}
-
-        config = {
-            "user": username,
-            "password": password,
-            "database": INDEX_NAME,
-        }
-        if endpoints.startswith("file://"):
-            config["unix_socket"] = endpoints[7:]
-        else:
-            host, port = endpoints.split(":")
-            config["host"] = host
-            config["port"] = port
-
-        return config
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ Wants=network.target
 [Service]
 Environment="K6_PROMETHEUS_RW_SERVER_URL={{ prometheus_rw_server_url }}"
 Environment="K6_PROMETHEUS_RW_PUSH_INTERVAL={{ prometheus_rw_push_interval }}"
-ExecStart={{ xk6_path }}/xk6 run --vus={{ vus }} --duration={{ duration }} {{ xk6_path }}/{{ js_script }}
+ExecStart={{ xk6_path }}/k6 run --vus={{ vus }} --duration={{ duration }} {{ xk6_path }}/{{ js_script }}
 Restart=always
 TimeoutSec=600
 Type=simple

@@ -28,3 +28,6 @@ run:
       description: |
         WRONGLY SETTING THIS PARAMETER TO "true" MAY RESULT IN PERMANENT DATA LOSS!
         If true, the test will delete all indices created during the test.
+stop:
+  description: |
+    Stops the benchmark service.
