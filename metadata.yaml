@@ -1,0 +1,32 @@
+# This file configures Charmcraft.
+# See https://juju.is/docs/sdk/charmcraft-config for guidance.
+name: k6-operator
+
+
+title: K6 Operator
+
+summary: |
+  Run this charm to connect with OpenSearch and test its performance.
+
+description: |
+  Run this charm to connect with OpenSearch and test its performance.
+
+
+series:
+- jammy
+- lunar
+- mantic
+
+requires:
+  opensearch:
+    interface: opensearch_client
+    limit: 1
+  send-remote-write:
+    interface: prometheus_remote_write
+    limit: 1
+
+resources:
+  xk6:
+    type: file
+    filename: xk6.zip
+    description: The xk6 binary containing xk6-opensearch

@@ -1,0 +1,6 @@
+options:
+  remote_write_interval:
+    default: 5s
+    type: string
+    description: |
+      Prometheus remote write interval.

@@ -1,0 +1,30 @@
+run:
+  description: |
+    Kickstarts the benchmark.
+  params:
+    duration:
+      type: integer
+      default: 0
+      description: |
+        Sets the number of seconds the test should run each time. Set 0 for continuous running.
+    clients:
+      type: integer
+      default: 10
+      description: |
+        Number of Virtual Users (VUs) to run concurrently.
+    message_size:
+      type: integer
+      default: 100
+      description: |
+        Sets the size of the message in bytes.
+    test_indices:
+      type: string
+      default: "test"
+      description: |
+        Comma-separated list of indices to test against. Each VU will reach to all indices in random order.
+    cleanup:
+      type: boolean
+      default: false
+      description: |
+        WRONGLY SETTING THIS PARAMETER TO "true" MAY RESULT IN PERMANENT DATA LOSS!
+        If true, the test will delete all indices created during the test.

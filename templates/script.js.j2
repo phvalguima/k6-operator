@@ -1,0 +1,64 @@
+import opensearch from 'k6/x/opensearch';
+import { Trend, Counter } from 'k6/metrics';
+
+const OpenSearchOperation = {
+	Create: 0,
+	Delete: 1,
+	Search: 2,
+	Update: 3,
+	Index: 4,
+};
+
+const xk6_opensearch_success_http_latency = new Trend('xk6_opensearch_success_http_latency', true);
+const xk6_opensearch_success_failure_latency = new Trend('xk6_opensearch_success_failure_latency', true);
+
+const xk6_opensearch_total_latency = new Counter('xk6_opensearch_total_latency');
+const xk6_opensearch_total_bytes_sent = new Counter('xk6_opensearch_total_bytes_sent');
+const xk6_opensearch_total_bytes_received = new Counter('xk6_opensearch_total_bytes_received');
+
+
+const client = opensearch.open('{{ username }}', '{{ password }}', '{{ url }}');
+
+
+const indices_list = [
+{% for d in indices_parameters %}
+    {
+        index: "{{ d.index }}",
+        shards: {{ d.shards }},
+        replicas: {{ d.replicas }}
+    },
+{% endfor %}
+];
+
+export function setup() {
+    var l = indices_list.length;
+    for (var i = 0; i < l; i++) {
+        opensearch.index(client, OpenSearchOperation.Create,  indices_list[i].index, indices_list[i].shards, indices_list[i].replicas);
+    }
+}
+  
+{% if cleanup -%}
+export function teardown() {
+    var l = indices_list.length;
+    for (var i = 0; i < l; i++) {
+        opensearch.index(client, OpenSearchOperation.Delete,  indices_list[i].index);
+    }
+}
+{% endif %}
+
+export default function () {
+    var res = null;
+    var l = indices_list.length;
+    for (var i = 0; i < l; i++) {
+        res = opensearch.document(client, OpenSearchOperation.Create, indices_list[i].index, '');
+        // Seems that k6 js uses ms as standard unit
+        if (res.respstatus < 200 || res.respstatus >= 300) {
+            xk6_opensearch_success_failure_latency.add(res.latency / 1e6);
+        } else {
+            xk6_opensearch_success_http_latency.add(res.latency / 1e6);
+        }
+        xk6_opensearch_total_latency.add(res.latency / 1e6);
+        xk6_opensearch_total_bytes_sent.add(res.bytes_sent);
+        xk6_opensearch_total_bytes_received.add(res.bytes_received);
+    }
+}
